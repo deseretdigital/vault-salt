@@ -7,7 +7,7 @@ This script simply rotates the vault token for a salt master using the [vault-sh
 0 0 1 * * /opt/vault-salt/rotate_token 2>&1 >>/var/log/salt_token.log && systemctl restart salt-master
 ```
 
-**NOTE:** This script assumes you have the vault-shim repo cloned at `../vault-shim` currently.
+**NOTE:** This script assumes you have the vault-shim repo cloned at `/opt/vault-shim` currently.
 
 ### Vault requirements
 
