@@ -1,0 +1,46 @@
+#!/bin/bash -
+CWD="$(cd "$(dirname "${BASH_SOURCE[0]}")";pwd -P)"
+VAULTBIN="/opt/vault-shim/vault"
+
+get_field() {
+    grep -Eo '^'${1}'\s+([^\s]+)$' <<< ${2} | awk '{print $2}'
+}
+
+yaml_token() {
+    python -c "import yaml;print(yaml.safe_load(open('${1}'))['${2}'])" | gpg --batch -q --decrypt --homedir /etc/salt/gpgkeys
+}
+
+run() {
+    local role_id=$(get_field role_id "$(${VAULTBIN} read auth/approle/role/salt-master/role-id)")
+    local secret_id=$(get_field secret_id "$(${VAULTBIN} write -f auth/approle/role/salt-master/secret-id)")
+    local token=$(get_field token "$(${VAULTBIN} write auth/approle/login role_id=${role_id} secret_id=${secret_id})")
+    local token_enc=$(echo -en ${token} | gpg --homedir /etc/salt/gpgkeys --armor --batch --trust-model always --encrypt -r it@deseretdigital.com)
+
+    #
+    # Output the yaml file
+    cat <<- EOF | awk 'NR==1 && match($0, /^ +/){n=RLENGTH} {print substr($0, n+1)}' > ${CWD}/sdb_vault.yaml
+        vault/salt_master: |
+          $(echo -e "${token_enc}" | awk 'NR==1{print $0}NR>1{print "          "$0}')
+
+	EOF
+
+    #
+    # Validate the YAML file to ensure that it is
+    #     a) a valid YAML and
+    #     b) the token we obtained earlier
+    local token_dec=$(yaml_token ${CWD}/sdb_vault.yaml vault/salt_master)
+    local token_cur=$(yaml_token /etc/salt/master.d/sdb_vault.yaml vault/salt_master)
+    if [[ ${token_dec} == ${token} ]]; then
+        echo "Validation success!"
+	echo "Revoking previous token (${token_cur}) and replacing vault config for Salt (existing config backed up to sdb_vault.yaml.bak)"
+	${VAULTBIN} token revoke ${token_cur}
+	/bin/mv /etc/salt/master.d/sdb_vault.yaml /etc/salt/master.d/sdb_vault.yaml.bak
+	/bin/mv ${CWD}/sdb_vault.yaml /etc/salt/master.d/sdb_vault.yaml
+    else
+        echo "Something must have gone wrong...revoking the obtained token (${token})"
+	${VAULTBIN} token revoke ${token}
+    fi
+}
+
+echo -e "\n$(date +'%Y-%m-%d %H:%M')\nRotating salt master token..."
+run $@
