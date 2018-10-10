@@ -2,6 +2,9 @@
 CWD="$(cd "$(dirname "${BASH_SOURCE[0]}")";pwd -P)"
 VAULTBIN="/opt/vault-shim/vault"
 
+# Use the policy-limited rotation token
+export VT="salt-master-rotate"
+
 get_field() {
     grep -Eo '^'${1}'\s+([^\s]+)$' <<< ${2} | awk '{print $2}'
 }
